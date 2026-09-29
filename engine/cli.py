@@ -67,6 +67,12 @@ def cmd_prune(args):
     print(f'suppressed {n} chain locations')
 
 
+def cmd_clean_emails(args):
+    from .diagnose import clean_emails
+    cfg, store = _ctx(args)
+    clean_emails(store, dry_run=args.dry_run)
+
+
 def cmd_diagnose(args):
     from .diagnose import Diagnoser
     cfg, store = _ctx(args)
@@ -164,6 +170,12 @@ def main(argv=None):
     pr = sub.add_parser('prune-chains', help='suppress repeated names (chains)')
     pr.add_argument('--threshold', type=int, default=3)
     pr.set_defaults(fn=cmd_prune)
+
+    ce = sub.add_parser('clean-emails',
+                        help='re-check stored addresses against current rules')
+    ce.add_argument('--dry-run', action='store_true', dest='dry_run',
+                    help='show what would be dropped, change nothing')
+    ce.set_defaults(fn=cmd_clean_emails)
 
     d = sub.add_parser('diagnose', help='audit sites and route to an offer')
     d.add_argument('--market')

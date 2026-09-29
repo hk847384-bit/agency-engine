@@ -272,6 +272,109 @@ def harvest_email(html: str, soup, base_url: str, timeout: int = 8) -> str:
     return sorted(clean, key=rank)[0]
 
 
+# words that say nothing about WHICH business this is
+NAME_NOISE = {
+    'the', 'and', 'of', 'at', 'for', 'a', 'an', '&', 'co', 'inc', 'llc',
+    'llp', 'pllc', 'ltd', 'pc', 'pa', 'plc', 'corp', 'group', 'associates',
+    'partners', 'firm', 'offices', 'office', 'company', 'services', 'service',
+    'solutions', 'center', 'centre', 'clinic', 'practice', 'care', 'law',
+    'legal', 'attorney', 'attorneys', 'lawyer', 'lawyers', 'dental',
+    'dentistry', 'dentist', 'orthodontics', 'medical', 'health', 'restaurant',
+    'cafe', 'coffee', 'pizzeria', 'pizza', 'kitchen', 'bar', 'grill', 'shop',
+    'store', 'studio', 'salon', 'spa', 'hotel', 'realty', 'real', 'estate',
+    'properties', 'management', 'austin', 'phoenix', 'denver', 'nashville',
+    'charlotte', 'antonio', 'san', 'downtown', 'north', 'south', 'east', 'west',
+}
+
+
+def name_tokens(name: str) -> set[str]:
+    """Distinctive words from a business name — the parts that identify it."""
+    words = re.split(r'[^a-z0-9]+', (name or '').lower())
+    return {w for w in words if len(w) >= 4 and w not in NAME_NOISE}
+
+
+def domain_matches_name(domain: str, name: str) -> bool:
+    """
+    Does this email domain plausibly belong to this business?
+
+    Plenty of businesses run email on a second domain of their own:
+    Steven C. Lee & Associates sits on legallee.com but emails from
+    steveleelaw.com; Kunik Orthodontics uses drkunik.com. A strict
+    domain-equals-website test throws all of those away. Matching the
+    domain against the distinctive words in the business name keeps them
+    while still rejecting weomedia.com and gargle.com.
+    """
+    stem = domain.split('.')[0].replace('-', '')
+    for tok in name_tokens(name):
+        if tok in stem or stem in tok:
+            return True
+        # names get shortened: "Steven C. Lee" emails from steveleelaw.com,
+        # so match on the stem of the word too
+        if len(tok) >= 5 and tok[:5] in stem:
+            return True
+
+    # Acronym domains carry no distinctive word at all — "FVF Law Firm"
+    # emails from fvlawfirm.com. But two ordinary words from the name in
+    # one domain is still them, and no web agency's domain will contain
+    # two words out of a client's name by chance.
+    words = [w for w in re.split(r'[^a-z0-9]+', (name or '').lower())
+             if len(w) >= 3]
+    return sum(1 for w in set(words) if w in stem) >= 2
+
+
+def email_is_usable(email: str, website: str | None,
+                    name: str = '') -> tuple[bool, str]:
+    """
+    Re-apply the harvest rules to an address already sitting in the database.
+
+    The harvester only runs on leads it is auditing for the first time, so a
+    filter added later never reaches addresses collected before it existed.
+    This is what `clean-emails` uses to catch up.
+    """
+    e = (email or '').strip().lower()
+    if not e:
+        return False, ''
+    if not EMAIL_RE.fullmatch(e):
+        return False, 'not a valid address'
+    if any(j in e for j in EMAIL_JUNK):
+        return False, 'platform or role address'
+    if PLACEHOLDER_NAME.match(e):
+        return False, 'theme placeholder'
+
+    host = (urlparse(website).hostname or '').removeprefix('www.').lower() \
+        if website else ''
+    root = '.'.join(host.split('.')[-2:]) if host else ''
+    dom = e.split('@')[-1]
+    if dom in FREE_PROVIDERS or not root or dom.endswith(root):
+        return True, ''
+    if domain_matches_name(dom, name):
+        return True, ''          # their own second domain
+    return False, f'{dom} is not this business (likely their web agency)'
+
+
+def clean_emails(store, dry_run: bool = False) -> dict:
+    """Clear stored addresses that today's rules would have rejected."""
+    rows = store.db.execute(
+        "SELECT id, name, email, website FROM leads "
+        "WHERE email IS NOT NULL AND email != '' AND status != 'skip'"
+    ).fetchall()
+
+    counts: dict[str, int] = {}
+    for r in rows:
+        ok, why = email_is_usable(r['email'], r['website'], r['name'])
+        if ok:
+            continue
+        counts[why] = counts.get(why.split(',')[0], 0) + 1
+        print(f"  drop {r['email'][:38]:<40} {r['name'][:28]:<30} {why}")
+        if not dry_run:
+            store.update(r['id'], email='')
+
+    kept = len(rows) - sum(counts.values())
+    print(f"\n  {len(rows)} addresses checked, {sum(counts.values())} dropped, "
+          f"{kept} kept" + ('  (dry run — nothing changed)' if dry_run else ''))
+    return {'checked': len(rows), 'dropped': sum(counts.values()), 'kept': kept}
+
+
 def classify(lead: dict, audit: dict, category: str) -> tuple[str, float, list[str]]:
     """Return (offer, score 0-100, human-readable reasons)."""
     reasons: list[str] = []
