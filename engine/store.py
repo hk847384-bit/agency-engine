@@ -141,8 +141,18 @@ class Store:
                        list(fields.values()) + [lead_id])
 
     def pending(self, stage: str, market: str | None = None,
-                limit: int = 500) -> list[sqlite3.Row]:
-        """Leads waiting for a given stage of the pipeline."""
+                limit: int = 500, channel: str | None = None) -> list[sqlite3.Row]:
+        """
+        Leads waiting for a given stage of the pipeline.
+
+        `channel` matters more than it looks. Score and contactability pull in
+        opposite directions: a lead scores highest when it has NO website —
+        which is exactly the lead with no site to harvest an email from. Order
+        by score alone and the first forty rows are all unreachable, every one
+        gets skipped, and the run produces an empty file with no error.
+        So the channel's address is a condition of selection, not a thing we
+        discover after choosing.
+        """
         where = {
             'diagnose': "status='new'",
             'demo':     "status='diagnosed' AND offer='webdev'",
@@ -150,6 +160,10 @@ class Store:
         }[stage]
         sql = f'SELECT * FROM leads WHERE {where}'
         args: list = []
+        if channel == 'email':
+            sql += " AND email IS NOT NULL AND TRIM(email) != ''"
+        elif channel == 'whatsapp':
+            sql += " AND phone_e164 IS NOT NULL AND TRIM(phone_e164) != ''"
         if market:
             sql += ' AND market=?'
             args.append(market)
@@ -208,8 +222,11 @@ class Store:
         a = (addr or '').strip().lower()
         if not a:
             return False
+        # scoped to email: a WhatsApp draft for the same business is not a
+        # reason to withhold the email
         sql = ("SELECT 1 FROM touches t JOIN leads l ON l.id = t.lead_id "
-               "WHERE LOWER(l.email) = ? AND t.status IN ('sent','drafted')")
+               "WHERE LOWER(l.email) = ? AND t.channel = 'email' "
+               "AND t.status IN ('sent','drafted')")
         args: list = [a]
         if exclude_lead:
             sql += ' AND t.lead_id != ?'

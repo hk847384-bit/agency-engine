@@ -190,10 +190,27 @@ class Pitcher:
     def run(self, channel: str = 'email', market: str | None = None,
             limit: int = 50, dry_run: bool = True,
             min_score: float = 0.0) -> dict:
-        rows = [r for r in self.store.pending('pitch', market, limit * 3)
+        rows = [r for r in self.store.pending('pitch', market, limit * 3,
+                                              channel=channel)
                 if (r['score'] or 0) >= min_score][:limit]
         counts: dict = {}
         drafts = []
+        reasons: dict = {}
+
+        if not rows:
+            pool = len(self.store.pending('pitch', market, 10000))
+            addressable = len(self.store.pending('pitch', market, 10000,
+                                                 channel=channel))
+            print(f'  nothing to pitch on {channel}.')
+            print(f'    {pool} leads are at the pitch stage')
+            print(f'    {addressable} of them have a {channel} address')
+            if addressable:
+                print(f'    but none of those scored {min_score} or above '
+                      f'— lower --min-score')
+            else:
+                print('    run diagnose to harvest addresses, or pitch '
+                      'on whatsapp instead (every lead has a phone)')
+            return {'channel': channel, 'counts': {}, 'drafts': []}
 
         for row in rows:
             msg = self.compose(row, channel)
@@ -206,6 +223,8 @@ class Pitcher:
             self.store.log_touch(row['id'], channel, 'first', msg['subject'],
                                  msg['body'], status, err)
             counts[status] = counts.get(status, 0) + 1
+            if status == 'skipped' and err:
+                reasons[err] = reasons.get(err, 0) + 1
             if status in ('drafted', 'sent'):
                 drafts.append({'id': row['id'], 'name': row['name'],
                                'offer': msg['offer'], 'score': row['score'],
@@ -218,5 +237,11 @@ class Pitcher:
                   f"{(err or msg['subject'])[:44]}")
             if status == 'sent':
                 time.sleep(max(1, 3600 // max(1, self.cfg.limits.emails_per_hour)))
+
+        if reasons:
+            print('\n  skipped, and why:')
+            for why, n in sorted(reasons.items(), key=lambda kv: -kv[1]):
+                print(f'    {n:>4}  {why}')
+        print(f"\n  {len(drafts)} written of {len(rows)} considered")
 
         return {'channel': channel, 'counts': counts, 'drafts': drafts}
