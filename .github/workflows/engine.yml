@@ -92,7 +92,16 @@ jobs:
 
       - name: Prune chains
         if: contains(fromJSON('["build","find","prune"]'), steps.plan.outputs.stage)
+        timeout-minutes: 5
         run: python -m engine.cli prune-chains --threshold 3
+
+      # Addresses collected before a filter existed never get re-checked by
+      # diagnose, which only harvests for leads it is auditing for the first
+      # time. This catches them up.
+      - name: Clean stored emails
+        if: contains(fromJSON('["build","find","prune"]'), steps.plan.outputs.stage)
+        timeout-minutes: 5
+        run: python -m engine.cli clean-emails
 
       - name: DIAGNOSE
         if: contains(fromJSON('["build","find","diagnose"]'), steps.plan.outputs.stage)
