@@ -30,6 +30,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from .store import now
+from .segments import value_of
 
 UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/124.0 Safari/537.36')
@@ -175,7 +176,15 @@ EMAIL_JUNK = ('example.com', 'sentry.io', 'wixpress.com', 'wix.com', 'godaddy',
               'jquery', 'bootstrap', 'fontawesome', 'schema.org', 'w3.org',
               'yourdomain', 'domain.com', 'email.com', 'sentry-', 'wordpress.org',
               'gravatar', 'placeholder', 'test.com', 'no-reply', 'noreply',
-              'donotreply', 'abuse@', 'postmaster@')
+              'donotreply', 'abuse@', 'postmaster@',
+              # theme boilerplate the owner never changed
+              'mystore.com', 'yourstore', 'yoursite', 'yourcompany', 'mysite.com',
+              'sentry.wixpress', 'menufy.com', 'instacart.com', 'doordash',
+              'ubereats', 'grubhub', 'opentable', 'yelp.com', 'tripadvisor',
+              # corporate press/PR desks — a franchise inbox, not a buyer
+              'press@', 'media@', 'pr@', 'investor', 'careers@', 'jobs@',
+              'privacy@', 'legal@', 'compliance@', 'dpo@', 'security@',
+              'webmaster@', 'hostmaster@', 'unsubscribe@')
 
 PREFERRED = ('info@', 'contact@', 'hello@', 'enquiries@', 'enquiry@',
              'reception@', 'admin@', 'office@', 'sales@', 'bookings@',
@@ -247,32 +256,35 @@ def classify(lead: dict, audit: dict, category: str) -> tuple[str, float, list[s
     reviews = lead.get('reviews') or 0
     reach = 12 if lead.get('phone_e164') else 0
     traction = min(18, reviews / 10) + (6 if rating >= 4.0 else 0)
+    # an implant dentist and a corner shop have the same problem and very
+    # different budgets, so the segment's value scales the whole score
+    vmul = value_of(category)
 
     website = (lead.get('website') or '').strip()
 
     # ---------------------------------------------------- no real website
     if not website:
         reasons.append('No website listed on Google')
-        return 'webdev', min(100, 58 + reach + traction), reasons
+        return 'webdev', min(100, (58 + reach + traction) * vmul), reasons
     if _is_social(website):
         reasons.append('Only a social page, no real website')
-        return 'webdev', min(100, 55 + reach + traction), reasons
+        return 'webdev', min(100, (55 + reach + traction) * vmul), reasons
 
     status = audit.get('site_status', 0)
     notes = audit.get('notes', [])
 
     if status == 0 or status >= 500:
         reasons.append('Website does not load')
-        return 'webdev', min(100, 60 + reach + traction), reasons
+        return 'webdev', min(100, (60 + reach + traction) * vmul), reasons
     if status in (403, 404, 410):
         reasons.append(f'Website returns {status}')
-        return 'webdev', min(100, 52 + reach + traction), reasons
+        return 'webdev', min(100, (52 + reach + traction) * vmul), reasons
     if any('parked' in n for n in notes):
         reasons.append('Domain is parked or a placeholder page')
-        return 'webdev', min(100, 56 + reach + traction), reasons
+        return 'webdev', min(100, (56 + reach + traction) * vmul), reasons
     if not audit.get('mobile_ok') and audit.get('word_count', 0) < 400:
         reasons.append('Not usable on a phone, and almost no content')
-        return 'webdev', min(100, 50 + reach + traction), reasons
+        return 'webdev', min(100, (50 + reach + traction) * vmul), reasons
 
     # ------------------------------------------------------- SEO problems
     seo_faults = []
@@ -298,7 +310,7 @@ def classify(lead: dict, audit: dict, category: str) -> tuple[str, float, list[s
     if len(seo_faults) >= 2:
         reasons.extend(seo_faults)
         severity = min(30, 7 * len(seo_faults))
-        return 'seo', min(100, 34 + severity + reach + traction * 0.7), reasons
+        return 'seo', min(100, (34 + severity + reach + traction * 0.7) * vmul), reasons
 
     # ------------------------------------------------- automation gaps
     auto_faults = []
@@ -319,7 +331,7 @@ def classify(lead: dict, audit: dict, category: str) -> tuple[str, float, list[s
         return 'seo', min(100, 26 + 7 * len(seo_faults) + reach), reasons
 
     reasons.append('Site covers the basics — softer angle needed')
-    return 'other', min(100, 18 + reach + traction * 0.5), reasons
+    return 'other', min(100, (18 + reach + traction * 0.5) * vmul), reasons
 
 
 class Diagnoser:

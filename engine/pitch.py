@@ -130,6 +130,8 @@ class Pitcher:
                                     domain=to.split('@')[-1],
                                     place_id=lead.get('place_id')):
             return 'skipped', 'suppressed'
+        if self.store.address_used(to, exclude_lead=lead.get('id')):
+            return 'skipped', 'address already contacted under another lead'
 
         lim = self.cfg.limits
         if self.store.sent_today('email') >= lim.emails_per_day:

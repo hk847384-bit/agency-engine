@@ -39,8 +39,31 @@ def cmd_find(args):
         categories=args.categories or None,
         per_query=args.limit,
         use_overpass=args.overpass,
-        source=args.source)
+        source=args.source,
+        all_categories=args.all_categories)
     print(json.dumps(res, indent=2))
+
+
+def cmd_segments(args):
+    from .segments import scorecard, render
+    cfg, store = _ctx(args)
+    rows = scorecard(store, args.market, args.min_leads)
+    print(render(rows, args.top))
+    if args.out:
+        import csv as _csv
+        with open(args.out, 'w', newline='', encoding='utf-8') as fh:
+            if rows:
+                w = _csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
+                w.writeheader()
+                w.writerows(rows)
+        print(f'segment table written to {args.out}')
+
+
+def cmd_prune(args):
+    from .find import Finder
+    cfg, store = _ctx(args)
+    n = Finder(cfg, store).prune_chains(args.threshold)
+    print(f'suppressed {n} chain locations')
 
 
 def cmd_diagnose(args):
@@ -122,9 +145,22 @@ def main(argv=None):
     f.add_argument('--categories', nargs='*')
     f.add_argument('--limit', type=int, default=60)
     f.add_argument('--overpass', action='store_true', help='also pull free OSM data')
+    f.add_argument('--all-categories', action='store_true', dest='all_categories',
+                   help='sweep every business type, not just the configured list')
     f.add_argument('--source', choices=['auto', 'places', 'osm'], default='auto',
                    help='osm needs no API key and no billing account')
     f.set_defaults(fn=cmd_find)
+
+    sg = sub.add_parser('segments', help='rank categories by opportunity')
+    sg.add_argument('--market')
+    sg.add_argument('--top', type=int, default=25)
+    sg.add_argument('--min-leads', type=int, default=4, dest='min_leads')
+    sg.add_argument('--out')
+    sg.set_defaults(fn=cmd_segments)
+
+    pr = sub.add_parser('prune-chains', help='suppress repeated names (chains)')
+    pr.add_argument('--threshold', type=int, default=3)
+    pr.set_defaults(fn=cmd_prune)
 
     d = sub.add_parser('diagnose', help='audit sites and route to an offer')
     d.add_argument('--market')

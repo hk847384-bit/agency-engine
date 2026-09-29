@@ -197,6 +197,25 @@ class Store:
                 db.execute('UPDATE leads SET status=?, touches=touches+1, last_touch_at=? '
                            'WHERE id=?', ('contacted', now(), lead_id))
 
+    def address_used(self, addr: str, exclude_lead: int | None = None) -> bool:
+        """
+        Has this exact address already been written to, under ANY lead?
+
+        Two branches of the same business share one inbox. Without this the
+        engine would send the same cold pitch to that inbox once per branch,
+        which is the fastest way to get a sending domain blacklisted.
+        """
+        a = (addr or '').strip().lower()
+        if not a:
+            return False
+        sql = ("SELECT 1 FROM touches t JOIN leads l ON l.id = t.lead_id "
+               "WHERE LOWER(l.email) = ? AND t.status IN ('sent','drafted')")
+        args: list = [a]
+        if exclude_lead:
+            sql += ' AND t.lead_id != ?'
+            args.append(exclude_lead)
+        return self.db.execute(sql + ' LIMIT 1', args).fetchone() is not None
+
     def sent_today(self, channel: str) -> int:
         start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0,
                                                    microsecond=0).isoformat()

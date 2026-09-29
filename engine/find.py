@@ -21,6 +21,9 @@ import time
 
 import requests
 
+from . import chains, segments
+from .osm_tags import plan as osm_plan, plan_all as osm_plan_all
+
 PLACES_SEARCH = 'https://places.googleapis.com/v1/places:searchText'
 OVERPASS = 'https://overpass-api.de/api/interpreter'
 
@@ -119,11 +122,18 @@ class Finder:
 
     # ----------------------------------------------------------- Overpass
     def overpass(self, city: str, market, categories: list[str],
-                 radius_m: int = 12000) -> int:
+                 radius_m: int = 15000, sweep_all: bool = False) -> int:
         """
-        Free OSM fallback. Pulls shops and amenities around a city centre and
-        keeps the ones with a phone number, since we need a way to reach them.
+        Free OSM source, restricted to the categories in config.yaml.
+
+        Without the tag mapping this used to pull every shop in the city, which
+        is how a search for med spas came back full of coffee chains.
         """
+        queries = osm_plan_all() if sweep_all else osm_plan(categories)
+        if not queries:
+            print(f'    (no OSM tag mapping for these categories — skipping)')
+            return 0
+
         geo = requests.get('https://nominatim.openstreetmap.org/search',
                            params={'q': f'{city}, {market.country}', 'format': 'json',
                                    'limit': 1},
@@ -133,38 +143,68 @@ class Finder:
             return 0
         lat, lon = float(hits[0]['lat']), float(hits[0]['lon'])
 
-        selectors = ''.join(
-            f'node(around:{radius_m},{lat},{lon})["{k}"~"{v}"];'
-            for k, v in [('shop', '.'), ('amenity', 'clinic|dentist|restaurant|cafe|'
-                                                    'pharmacy|veterinary|driving_school')]
-        )
-        q = f'[out:json][timeout:60];({selectors});out body 400;'
-        r = requests.post(OVERPASS, data={'data': q}, timeout=90,
-                          headers={'User-Agent': 'agency-engine/1.0'})
-        if r.status_code != 200:
-            return 0
+        elements: list[dict] = []
+        for selectors, name_re in queries:
+            parts = []
+            for k, v in selectors:
+                for kind in ('node', 'way'):
+                    parts.append(f'{kind}(around:{radius_m},{lat},{lon})["{k}"~"^({v})$"];')
+            q = f'[out:json][timeout:90];({"".join(parts)});out center tags 600;'
+            try:
+                r = requests.post(OVERPASS, data={'data': q}, timeout=120,
+                                  headers={'User-Agent': 'agency-engine/1.0'})
+            except Exception as e:
+                print(f'    overpass error: {type(e).__name__}')
+                continue
+            if r.status_code != 200:
+                print(f'    overpass {r.status_code}')
+                time.sleep(5)
+                continue
+            for el in r.json().get('elements', []):
+                nm = el.get('tags', {}).get('name')
+                if not nm:
+                    continue
+                if name_re and not name_re.search(nm):
+                    continue
+                elements.append(el)
+            time.sleep(2)          # Overpass is free; do not hammer it
 
-        found = 0
-        for el in r.json().get('elements', []):
+        found = skipped_chain = skipped_nophone = 0
+        for el in elements:
             t = el.get('tags', {})
             name = t.get('name')
-            phone = t.get('phone') or t.get('contact:phone')
-            if not name or not phone:
+            phone = (t.get('phone') or t.get('contact:phone')
+                     or t.get('contact:mobile'))
+            if not name:
                 continue
+            if chains.is_blocklisted(name):
+                skipped_chain += 1
+                continue
+            cat_raw = (t.get('healthcare') or t.get('office') or t.get('craft')
+                       or t.get('shop') or t.get('amenity') or t.get('leisure')
+                       or t.get('tourism') or '')
+            if segments.is_excluded(cat_raw):
+                continue
+            if not phone:
+                skipped_nophone += 1
+                continue
+
+            centre = el.get('center') or {}
             rec = {
-                'place_id':  f"osm:{el['id']}",
+                'place_id':  f"osm:{el.get('type','node')[0]}{el['id']}",
                 'source':    'overpass',
                 'market':    market.name,
                 'city':      city,
                 'name':      name,
-                'category':  t.get('shop') or t.get('amenity') or '',
+                'category':  cat_raw,
                 'address':   ', '.join(filter(None, [
-                    t.get('addr:street'), t.get('addr:housenumber'), city])),
-                'lat':       el.get('lat'),
-                'lng':       el.get('lon'),
+                    t.get('addr:housenumber'), t.get('addr:street'), city])),
+                'lat':       el.get('lat') or centre.get('lat'),
+                'lng':       el.get('lon') or centre.get('lon'),
                 'phone':     phone,
                 'phone_e164': to_e164(phone, market.country),
-                'website':   t.get('website') or t.get('contact:website'),
+                'website':   (t.get('website') or t.get('contact:website')
+                              or t.get('url')),
                 'rating':    None,
                 'reviews':   None,
                 'hours_json': json.dumps([t['opening_hours']] if t.get('opening_hours') else []),
@@ -173,12 +213,39 @@ class Finder:
             }
             if self.store.upsert_lead(rec):
                 found += 1
+
+        if skipped_chain or skipped_nophone:
+            print(f'    (skipped {skipped_chain} chains, '
+                  f'{skipped_nophone} with no phone)')
         return found
+
+    def prune_chains(self, threshold: int = 3) -> int:
+        """
+        Suppress any name that turns up `threshold`+ times across the database.
+
+        The blocklist catches Starbucks. This catches the regional chain with
+        eleven branches that neither of us has heard of.
+        """
+        rows = self.store.db.execute(
+            "SELECT id, name, place_id FROM leads WHERE status != 'skip'").fetchall()
+        repeats = chains.find_repeats([r['name'] for r in rows], threshold)
+        if not repeats:
+            return 0
+        n = 0
+        for r in rows:
+            if chains.normalise(r['name']) in repeats:
+                self.store.update(r['id'], status='skip',
+                                  audit_notes='chain: repeated name')
+                self.store.suppress('place_id', r['place_id'], 'chain')
+                n += 1
+        print(f'  pruned {n} leads across {len(repeats)} chains')
+        return n
 
     # --------------------------------------------------------------- run
     def run(self, market_name: str, cities: list[str] | None = None,
             categories: list[str] | None = None, per_query: int = 60,
-            use_overpass: bool = False, source: str = 'auto') -> dict:
+            use_overpass: bool = False, source: str = 'auto',
+            all_categories: bool = False) -> dict:
         """
         source: 'auto'      Places when a key exists, otherwise OpenStreetMap
                 'places'    Places only (needs a key)
@@ -208,7 +275,8 @@ class Finder:
                     total += n
                     print(f'  {city:<18} {cat:<22} +{n}')
             if use_osm:
-                n = self.overpass(city, market, categories)
+                n = self.overpass(city, market, categories,
+                                  sweep_all=all_categories)
                 total += n
                 print(f'  {city:<18} {"openstreetmap":<22} +{n}')
         return {'market': market_name, 'new_leads': total,
