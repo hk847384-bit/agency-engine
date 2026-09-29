@@ -1,0 +1,5 @@
+Hi{% if contact_name %} {{ contact_name }}{% endif %}, {{ agency_person }} from {{ agency_name }}.
+
+Your website looks good. One gap I noticed: {% for r in reasons[:2] %}{{ r|lower }}{% if not loop.last %} and {% endif %}{% endfor %} — so every booking and question comes to a person.
+
+I build WhatsApp assistants that handle the repeat questions and take bookings on your existing number. Worth a quick look?

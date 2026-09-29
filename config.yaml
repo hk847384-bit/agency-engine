@@ -1,0 +1,105 @@
+# ---------------------------------------------------------------- identity
+agency_name:   Alpha Agency
+agency_person: Imran
+agency_email:  imran@youragency.com
+agency_phone:  ""
+agency_site:   ""
+
+demo_base_url: https://demos.youragency.com
+unsubscribe_url: ""
+
+# --------------------------------------------------------------- API keys
+# Set these in the environment instead: GOOGLE_PLACES_KEY, SMTP_USER, SMTP_PASS
+google_places_key: ""
+serp_api_key:      ""
+smtp_host: ""
+smtp_port: 587
+smtp_user: ""
+smtp_pass: ""
+smtp_from: ""
+
+whatsapp_autosend: false
+
+# --------------------------------------------------------------- markets
+# International only. Categories chosen for ticket size: these are businesses
+# where one new customer is worth hundreds or thousands, so a website or a
+# booking system pays for itself in a month and the conversation is easy.
+
+markets:
+  - name: us
+    country: US
+    language: en
+    currency: USD
+    primary_channel: email
+    cities: [Austin, Phoenix, Tampa, Charlotte, Nashville, Denver,
+             San Antonio, Jacksonville, Columbus, Indianapolis]
+    categories:
+      - cosmetic dentist
+      - med spa
+      - plastic surgeon
+      - orthodontist
+      - chiropractor
+      - personal injury lawyer
+      - family law attorney
+      - roofing contractor
+      - HVAC contractor
+      - landscaping company
+      - real estate agency
+      - veterinary clinic
+    price_webdev:     "$1,800"
+    price_seo:        "$1,200/month"
+    price_automation: "$3,500 setup"
+
+  - name: uk
+    country: GB
+    language: en
+    currency: GBP
+    primary_channel: email
+    cities: [Manchester, Birmingham, Leeds, Glasgow, Bristol,
+             Sheffield, Nottingham, Liverpool, Cardiff, Edinburgh]
+    categories:
+      - private dentist
+      - aesthetics clinic
+      - physiotherapy clinic
+      - solicitors
+      - estate agents
+      - driving school
+      - wedding venue
+      - veterinary practice
+      - accountants
+      - roofing company
+    price_webdev:     "£1,400"
+    price_seo:        "£900/month"
+    price_automation: "£2,600 setup"
+
+  - name: ae
+    country: AE
+    language: en
+    currency: AED
+    # the Gulf is the one international market where business genuinely runs
+    # on WhatsApp — still drafted, never blasted
+    primary_channel: whatsapp
+    cities: [Dubai, Abu Dhabi, Sharjah, Ajman]
+    categories:
+      - dental clinic
+      - aesthetic clinic
+      - beauty salon
+      - law firm
+      - real estate agency
+      - fitness studio
+      - interior design company
+      - car rental
+    price_webdev:     "AED 6,500"
+    price_seo:        "AED 4,500/month"
+    price_automation: "AED 12,000 setup"
+
+# ---------------------------------------------------------------- limits
+limits:
+  emails_per_day: 120
+  emails_per_hour: 20
+  whatsapp_per_day: 0
+  places_requests_per_run: 300
+  audit_concurrency: 6
+  audit_timeout_s: 12
+  min_days_between_touches: 4
+  max_touches_per_lead: 3

@@ -1,0 +1,22 @@
+Subject: {{ biz.name }} — a few things stopping your site from ranking
+
+Hi{% if contact_name %} {{ contact_name }}{% endif %},
+
+I had a look at {{ website_host }} this week. The site itself is fine — but there are a handful of technical things holding it back in search:
+
+{% for r in reasons[:4] %}  • {{ r }}
+{% endfor %}
+{% if biz.reviews %}
+You've earned {{ biz.reviews }} reviews{% if biz.rating %} at {{ '%.1f'|format(biz.rating) }} stars{% endif %}, so people clearly rate you once they find you. The problem is the finding.
+{% endif %}
+These are all fixable, most of them in a day or two. I've written up exactly what I'd change and why — happy to send it over with no obligation, and you're welcome to hand it to whoever built the site.
+
+If you'd rather I just did it, that's {{ price }}.
+
+Want the write-up?
+
+{{ agency_person }}
+{{ agency_name }}{% if agency_phone %}
+{{ agency_phone }}{% endif %}
+
+{{ unsubscribe_line }}

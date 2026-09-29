@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+config.yaml.local
+out/demos/
+out/*.json
+out/*.csv
+out/*.txt
+# NOTE: out/leads.db is deliberately NOT ignored — the GitHub Action commits it
+# back after each run so the engine remembers who it already contacted.

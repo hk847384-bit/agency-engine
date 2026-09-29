@@ -1,0 +1,171 @@
+name: agency-engine
+
+# Runs in GitHub's cloud on a schedule — your laptop can be closed.
+#
+#   06:00 UTC  find new businesses, diagnose them, build demo sites
+#   09:00 UTC  send the day's emails (capped in config.yaml)
+#   17:00 UTC  export the CSV and write the WhatsApp draft list
+#
+# The lead database is committed back to the repo after every run, so the
+# engine remembers who it already found and already contacted. Keep the repo
+# PRIVATE — it holds business contact details.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1-5'      # weekday mornings: source + build
+    - cron: '0 9 * * 1-5'      # weekday mid-morning: send
+    - cron: '0 17 * * 1-5'     # weekday evening: report
+  workflow_dispatch:           # and a "Run workflow" button for testing
+    inputs:
+      stage:
+        description: 'Which stage to run'
+        required: true
+        default: 'all'
+        type: choice
+        options: [all, find, diagnose, demo, pitch, report]
+      market:
+        description: 'Market (us, uk, ae)'
+        required: false
+        default: 'uk'
+      send:
+        description: 'Actually send emails? Leave false to only draft.'
+        required: false
+        default: 'false'
+
+concurrency:
+  group: agency-engine
+  cancel-in-progress: false
+
+permissions:
+  contents: write              # needed to commit the database back
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      GOOGLE_PLACES_KEY: ${{ secrets.GOOGLE_PLACES_KEY }}
+      SMTP_HOST:  ${{ secrets.SMTP_HOST }}
+      SMTP_PORT:  ${{ secrets.SMTP_PORT }}
+      SMTP_USER:  ${{ secrets.SMTP_USER }}
+      SMTP_PASS:  ${{ secrets.SMTP_PASS }}
+      SMTP_FROM:  ${{ secrets.SMTP_FROM }}
+      MARKET:     ${{ github.event.inputs.market || vars.MARKET || 'uk' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install
+        run: pip install -r requirements.txt
+
+      # ---------------------------------------------------- which stages
+      - name: Decide what to run
+        id: plan
+        run: |
+          STAGE="${{ github.event.inputs.stage }}"
+          HOUR=$(date -u +%H)
+          if [ -z "$STAGE" ] || [ "$STAGE" = "all" ]; then
+            case "$HOUR" in
+              06) STAGE=build ;;
+              09) STAGE=pitch ;;
+              17) STAGE=report ;;
+              *)  STAGE=build ;;
+            esac
+          fi
+          echo "stage=$STAGE" >> "$GITHUB_OUTPUT"
+          echo "Running stage: $STAGE (hour $HOUR UTC, market $MARKET)"
+
+      # --------------------------------------------- find / diagnose / demo
+      - name: FIND
+        if: contains(fromJSON('["build","find"]'), steps.plan.outputs.stage)
+        run: python -m engine.cli find --market "$MARKET" --limit 30
+
+      - name: DIAGNOSE
+        if: contains(fromJSON('["build","find","diagnose"]'), steps.plan.outputs.stage)
+        run: python -m engine.cli diagnose --limit 250
+
+      - name: BUILD demo sites
+        if: contains(fromJSON('["build","demo"]'), steps.plan.outputs.stage)
+        run: python -m engine.cli demo --limit 25
+
+      - name: Publish demos to GitHub Pages branch
+        if: contains(fromJSON('["build","demo"]'), steps.plan.outputs.stage)
+        run: |
+          if [ -z "$(ls -A out/demos 2>/dev/null)" ]; then
+            echo "no new demos to publish"; exit 0
+          fi
+          git config user.name  "agency-engine"
+          git config user.email "actions@users.noreply.github.com"
+          git fetch origin gh-pages || true
+          rm -rf .pages && mkdir .pages
+          git worktree add .pages gh-pages 2>/dev/null || \
+            (git checkout --orphan gh-pages && git rm -rf . >/dev/null 2>&1; \
+             git commit --allow-empty -m init && git checkout - && \
+             git worktree add .pages gh-pages)
+          cp -f out/demos/*.html .pages/ 2>/dev/null || true
+          cd .pages
+          git add -A
+          git commit -m "demos $(date -u +%F)" || echo "nothing new"
+          git push origin gh-pages
+          cd ..
+          git worktree remove .pages --force
+
+      # ------------------------------------------------------------ pitch
+      - name: PITCH — email
+        if: steps.plan.outputs.stage == 'pitch'
+        run: |
+          SEND=""
+          if [ "${{ github.event.inputs.send }}" = "true" ] || [ "${{ vars.AUTO_SEND }}" = "true" ]; then
+            SEND="--send"
+            echo "::notice::Sending for real"
+          else
+            echo "::notice::Draft mode — set repository variable AUTO_SEND=true to send"
+          fi
+          python -m engine.cli pitch --channel email --limit 40 --min-score 45 \
+            $SEND --out out/drafts.json
+
+      - name: PITCH — WhatsApp drafts (never auto-sent)
+        if: contains(fromJSON('["pitch","report"]'), steps.plan.outputs.stage)
+        run: python -m engine.cli pitch --channel whatsapp --limit 25 --min-score 60 --out out/wa.json || true
+
+      # ----------------------------------------------------------- report
+      - name: Stats + CSV
+        if: always()
+        run: |
+          python -m engine.cli stats | tee out/stats.txt
+          python -m engine.cli export --out out/leads.csv
+          {
+            echo "### agency-engine — ${{ steps.plan.outputs.stage }} (${MARKET})"
+            echo '```'
+            cat out/stats.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload CSV and drafts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: leads-${{ github.run_number }}
+          path: |
+            out/leads.csv
+            out/drafts.json
+            out/wa.json
+          retention-days: 30
+          if-no-files-found: ignore
+
+      # ---------------------------------- remember what we did, for next run
+      - name: Commit the database back
+        if: always()
+        run: |
+          git config user.name  "agency-engine"
+          git config user.email "actions@users.noreply.github.com"
+          git add -f out/leads.db
+          git commit -m "state after ${{ steps.plan.outputs.stage }} $(date -u +'%F %H:%M')" || echo "no change"
+          git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || true
+          git push origin "HEAD:${GITHUB_REF_NAME}"

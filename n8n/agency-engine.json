@@ -1,0 +1,150 @@
+{
+  "name": "Agency Engine — find, diagnose, build, pitch",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [ { "field": "cronExpression", "expression": "0 6 * * 1-5" } ] }
+      },
+      "id": "cron-find",
+      "name": "Weekday 06:00 — source new leads",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [ -560, 200 ]
+    },
+    {
+      "parameters": {
+        "command": "=cd {{$env.ENGINE_DIR}} && python3 -m engine.cli find --market {{$json[\"market\"] || \"pk\"}} --limit 40"
+      },
+      "id": "find",
+      "name": "FIND — Google Places",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [ -320, 200 ],
+      "notesInFlow": true,
+      "notes": "Sources businesses into SQLite. Deduped on place_id."
+    },
+    {
+      "parameters": {
+        "command": "=cd {{$env.ENGINE_DIR}} && python3 -m engine.cli diagnose --limit 300"
+      },
+      "id": "diagnose",
+      "name": "DIAGNOSE — audit + route to offer",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [ -80, 200 ],
+      "notesInFlow": true,
+      "notes": "Audits each site and sets offer = webdev | seo | automation | other."
+    },
+    {
+      "parameters": {
+        "command": "=cd {{$env.ENGINE_DIR}} && python3 -m engine.cli demo --limit 25"
+      },
+      "id": "demo",
+      "name": "BUILD — sample sites for webdev leads",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [ 160, 200 ],
+      "notesInFlow": true,
+      "notes": "Only webdev leads get a demo. Output is a folder of self-contained HTML."
+    },
+    {
+      "parameters": {
+        "command": "=cd {{$env.ENGINE_DIR}} && rsync -a --delete out/demos/ {{$env.DEMO_DEPLOY_TARGET}}"
+      },
+      "id": "deploy",
+      "name": "Publish demos to static host",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [ 400, 200 ],
+      "notesInFlow": true,
+      "notes": "Swap rsync for netlify deploy / wrangler pages publish / scp — whatever you host on."
+    },
+    {
+      "parameters": {
+        "rule": { "interval": [ { "field": "cronExpression", "expression": "0 9,14 * * 1-5" } ] }
+      },
+      "id": "cron-pitch",
+      "name": "Weekdays 09:00 & 14:00 — outreach window",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [ -560, 480 ]
+    },
+    {
+      "parameters": {
+        "command": "=cd {{$env.ENGINE_DIR}} && python3 -m engine.cli pitch --channel email --limit 40 --min-score 45 --send --out out/sent.json && cat out/sent.json"
+      },
+      "id": "email",
+      "name": "PITCH — send email (capped)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [ -320, 420 ],
+      "notesInFlow": true,
+      "notes": "Caps live in config.yaml: 120/day, 20/hour. The engine refuses to exceed them."
+    },
+    {
+      "parameters": {
+        "command": "=cd {{$env.ENGINE_DIR}} && python3 -m engine.cli pitch --channel whatsapp --limit 25 --min-score 60 --out out/wa_drafts.json && cat out/wa_drafts.json"
+      },
+      "id": "wa",
+      "name": "PITCH — draft WhatsApp (never auto-sends)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [ -320, 560 ],
+      "notesInFlow": true,
+      "notes": "Produces message text + a wa.me link per lead. A human presses send. Auto-sending cold WhatsApp gets the number banned."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Turn the drafted WhatsApp messages into a single review list.\nconst raw = $input.first().json.stdout || '[]';\nlet drafts = [];\ntry { drafts = JSON.parse(raw); } catch (e) { drafts = []; }\n\nif (!drafts.length) return [{ json: { text: 'No WhatsApp drafts today.' } }];\n\nconst lines = drafts\n  .sort((a, b) => (b.score || 0) - (a.score || 0))\n  .slice(0, 25)\n  .map((d, i) => `${i + 1}. *${d.name}* — ${d.offer} (${d.score})\\n${d.wa_link}`);\n\nreturn [{ json: {\n  count: drafts.length,\n  text: `*${drafts.length} WhatsApp drafts ready*\\n\\nTap a link, check the message, send it.\\n\\n` + lines.join('\\n\\n')\n} }];"
+      },
+      "id": "digest",
+      "name": "Build review list",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [ -80, 560 ]
+    },
+    {
+      "parameters": {
+        "rule": { "interval": [ { "field": "cronExpression", "expression": "0 18 * * 1-5" } ] }
+      },
+      "id": "cron-stats",
+      "name": "Weekdays 18:00 — daily numbers",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [ -560, 760 ]
+    },
+    {
+      "parameters": {
+        "command": "=cd {{$env.ENGINE_DIR}} && python3 -m engine.cli stats && python3 -m engine.cli export --out out/leads.csv"
+      },
+      "id": "stats",
+      "name": "Stats + CSV export",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [ -320, 760 ]
+    },
+    {
+      "parameters": {
+        "content": "## Before this runs\n\n1. Set **ENGINE_DIR** to the folder holding `engine/` (Settings → Variables, or the n8n env).\n2. Set **DEMO_DEPLOY_TARGET** to wherever the demo HTML gets published.\n3. Put `GOOGLE_PLACES_KEY`, `SMTP_USER`, `SMTP_PASS` in the n8n environment — not in `config.yaml`.\n4. Start with `--send` removed from the email node and read `out/sent.json` for a week before you let it post for real.\n\n### Two things that will bite you\n\n**Email reputation.** A fresh domain sending 120 cold emails on day one lands in spam permanently. Warm up: 10/day for a week, 25/day the next, then step up. Use a *separate* domain from your client-facing mail.\n\n**WhatsApp bans.** The WhatsApp node drafts only, on purpose. Cold-messaging scraped numbers breaks Meta's Business Messaging Policy and the ban is usually permanent. Never point this at the number running your clinic chatbot.",
+        "height": 480,
+        "width": 420
+      },
+      "id": "note",
+      "name": "Setup notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [ 660, 420 ]
+    }
+  ],
+  "connections": {
+    "Weekday 06:00 — source new leads": { "main": [ [ { "node": "FIND — Google Places", "type": "main", "index": 0 } ] ] },
+    "FIND — Google Places": { "main": [ [ { "node": "DIAGNOSE — audit + route to offer", "type": "main", "index": 0 } ] ] },
+    "DIAGNOSE — audit + route to offer": { "main": [ [ { "node": "BUILD — sample sites for webdev leads", "type": "main", "index": 0 } ] ] },
+    "BUILD — sample sites for webdev leads": { "main": [ [ { "node": "Publish demos to static host", "type": "main", "index": 0 } ] ] },
+    "Weekdays 09:00 & 14:00 — outreach window": { "main": [ [ { "node": "PITCH — send email (capped)", "type": "main", "index": 0 }, { "node": "PITCH — draft WhatsApp (never auto-sends)", "type": "main", "index": 0 } ] ] },
+    "PITCH — draft WhatsApp (never auto-sends)": { "main": [ [ { "node": "Build review list", "type": "main", "index": 0 } ] ] },
+    "Weekdays 18:00 — daily numbers": { "main": [ [ { "node": "Stats + CSV export", "type": "main", "index": 0 } ] ] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {}
+}

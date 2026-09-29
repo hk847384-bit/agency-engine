@@ -1,0 +1,6 @@
+Hi{% if contact_name %} {{ contact_name }}{% endif %}, {{ agency_person }} here from {{ agency_name }}.
+
+I checked {{ website_host }} — the site's fine, but a few technical things are holding it back in Google:
+{% for r in reasons[:3] %}• {{ r }}
+{% endfor %}
+I've written up what I'd change. Want me to send it? Free, and you can give it to whoever built the site.

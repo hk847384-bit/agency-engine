@@ -1,0 +1,19 @@
+Subject: How many enquiries does {{ biz.name }} answer by hand?
+
+Hi{% if contact_name %} {{ contact_name }}{% endif %},
+
+Your site looks good — that's genuinely not something I say often in these emails.
+
+One thing I did notice: {% for r in reasons[:2] %}{{ r|lower }}{% if not loop.last %}, and {% endif %}{% endfor %}. Which means every booking, quote and "are you open on Sunday" is landing on a person.
+
+{% if biz.reviews %}At {{ biz.reviews }} reviews you're busy enough that this adds up.{% endif %} The usual fix is a WhatsApp assistant that answers the repeat questions, takes bookings into your calendar, and passes anything real to you with the context already collected. It runs on your existing number.
+
+I build these — {{ price }}, usually live within a week.
+
+Worth a ten-minute call to see if it fits how you actually work?
+
+{{ agency_person }}
+{{ agency_name }}{% if agency_phone %}
+{{ agency_phone }}{% endif %}
+
+{{ unsubscribe_line }}

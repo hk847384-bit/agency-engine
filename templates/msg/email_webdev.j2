@@ -1,0 +1,20 @@
+Subject: I built {{ biz.name }} a website — have a look
+
+Hi{% if contact_name %} {{ contact_name }}{% endif %},
+
+I was looking through {{ biz.category|lower }}s in {{ biz.city }} and noticed {{ biz.name }} {{ problem_short }}.
+
+So I built you one. It's already live here, nothing to sign up for:
+{{ demo_url }}
+
+It uses your real details — your {% if biz.rating %}{{ '%.1f'|format(biz.rating) }}-star rating, {% endif %}{% if biz.reviews %}{{ biz.reviews }} reviews, {% endif %}opening hours and photos from your Google listing. It works properly on a phone, which is where nearly everyone will find you.
+
+If you like it, I'll finish it, put it on your own domain and hand it over — {{ price }}. If you don't, delete this email and I'll take the page down.
+
+Either way, no hard feelings.
+
+{{ agency_person }}
+{{ agency_name }}{% if agency_phone %}
+{{ agency_phone }}{% endif %}
+
+{{ unsubscribe_line }}
