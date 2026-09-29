@@ -60,6 +60,83 @@ def problem_short(reasons: list[str]) -> str:
     return "doesn't have much of a web presence yet"
 
 
+# --------------------------------------------------------------- the impact
+# PAS ("problem, agitate, solve") only works if the agitate step is concrete.
+# "This is hurting your business" is noise. "Someone searching at 9pm books
+# the practice that answers" is a sentence the reader can picture, and it is
+# the step that earns the reply — so it is written per offer AND per vertical,
+# because what a missed enquiry costs a law firm is not what it costs a cafe.
+
+# what one new customer is, in this line of work
+CUSTOMER_WORD = {
+    'dentist': 'patient', 'orthodontics': 'patient', 'clinic': 'patient',
+    'doctor': 'patient', 'optometrist': 'patient', 'optician': 'patient',
+    'physiotherapist': 'patient', 'veterinary': 'client',
+    'lawyer': 'case', 'accountant': 'client', 'tax_advisor': 'client',
+    'financial_advisor': 'client', 'insurance': 'policy',
+    'estate_agent': 'instruction', 'architect': 'project',
+    'roofer': 'job', 'plumber': 'job', 'electrician': 'job', 'hvac': 'job',
+    'car_repair': 'booking', 'moving': 'job', 'golf_course': 'membership',
+    'fitness': 'membership', 'restaurant': 'table', 'cafe': 'table',
+    'bar': 'table', 'pub': 'table', 'hotel': 'booking', 'motel': 'booking',
+    'hairdresser': 'appointment', 'beauty': 'appointment', 'tattoo': 'booking',
+    'dance': 'sign-up', 'educational_institution': 'enrolment',
+}
+
+# roughly what one of those is worth — used to choose how hard to press,
+# never quoted at the prospect
+HIGH_TICKET = {'dentist', 'orthodontics', 'lawyer', 'estate_agent',
+               'accountant', 'tax_advisor', 'financial_advisor', 'architect',
+               'roofer', 'hvac', 'insurance', 'veterinary', 'clinic', 'hotel',
+               'moving', 'golf_course', 'car_repair', 'plumber', 'electrician'}
+
+
+def customer_word(category: str | None, plural: bool = False) -> str:
+    c = segments.canon(category or '')
+    w = CUSTOMER_WORD.get(c, 'customer')
+    if not plural:
+        return w
+    return w[:-1] + 'ies' if w.endswith('y') else w + 's'
+
+
+def impact_line(offer: str, category: str | None, city: str = '',
+                reasons: list[str] | None = None) -> str:
+    """One sentence on what the problem actually costs them."""
+    c = segments.canon(category or '')
+    who = customer_word(category)
+    whos = customer_word(category, plural=True)
+    trade = segments.spoken(category)
+    high = c in HIGH_TICKET
+    joined = ' '.join(reasons or []).lower()
+
+    if offer == 'seo':
+        where = f'in {city}' if city else 'nearby'
+        if high:
+            return (f'Someone {where} looking for a {trade} picks from the '
+                    f'first three results. One {who} a month going elsewhere '
+                    f'adds up fast at what a {who} is worth to you.')
+        return (f'When someone {where} searches for what you do, you are below '
+                f'the places that got this right — and most people never scroll.')
+
+    if offer == 'webdev':
+        if 'phone' in joined or 'mobile' in joined:
+            return ('Most people will find you on a phone, decide in about five '
+                    'seconds, and go back to the results if it is hard to read.')
+        return (f'Anyone who hears about you and looks you up finds nothing to '
+                f'look at, so they check whoever is next on the list.')
+
+    if offer == 'automation':
+        if high:
+            return ('An enquiry that lands at 8pm and sits until morning has '
+                    'usually already gone to whoever answered first. At what '
+                    f'one {who} is worth to you, that is an expensive night.')
+        return (f'Every booking and every "are you open Sunday" lands on a '
+                f'person — and the ones after closing quietly become '
+                f'{whos} for someone else.')
+
+    return ''
+
+
 def host_of(url: str | None) -> str:
     """
     The bare hostname, whether or not anyone bothered with a scheme.
@@ -139,6 +216,10 @@ class Pitcher:
             'website_host': host_of(lead.get('website')),
             'category_words': segments.spoken(lead.get('category')),
             'category_plural': segments.spoken_plural(lead.get('category')),
+            'impact': impact_line(offer, lead.get('category'),
+                                  lead.get('city') or '', reasons),
+            'customer': customer_word(lead.get('category')),
+            'customers': customer_word(lead.get('category'), plural=True),
             'price': price or 'a fair fixed price',
             'agency_name': self.cfg.agency_name,
             'agency_person': self.cfg.agency_person,

@@ -1,19 +1,16 @@
-Subject: {{ biz.name }} — a few things stopping your site from ranking
+Subject: {{ biz.name }} — found on page 2
 
 Hi{% if contact_name %} {{ contact_name }}{% endif %},
 
-I had a look at {{ website_host }} this week. The site itself is fine — but there are a handful of technical things holding it back in search:
+I pulled up {{ website_host }} while looking at {{ category_plural }} in {{ biz.city }}. Site reads well — but it's missing things Google leans on to rank a local business:
 
-{% for r in reasons[:4] %}  • {{ r }}
+{% for r in reasons[:3] %}  • {{ r }}
 {% endfor %}
+{{ impact }}
 {% if biz.reviews %}
-You've earned {{ biz.reviews }} reviews{% if biz.rating %} at {{ '%.1f'|format(biz.rating) }} stars{% endif %}, so people clearly rate you once they find you. The problem is the finding.
+{{ biz.reviews }} reviews{% if biz.rating %} at {{ '%.1f'|format(biz.rating) }} stars{% endif %} — people rate you once they find you. Finding you is the broken part.
 {% endif %}
-These are all fixable, most of them in a day or two. I've written up exactly what I'd change and why — happy to send it over with no obligation, and you're welcome to hand it to whoever built the site.
-
-If you'd rather I just did it, that's {{ price }}.
-
-Want the write-up?
+I've written up what I'd change and in what order. Want it? Yours either way — pass it to whoever built the site if that's easier.
 
 {{ agency_person }}
 {{ agency_name }}{% if agency_phone %}

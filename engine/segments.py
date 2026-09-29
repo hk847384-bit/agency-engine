@@ -117,6 +117,20 @@ CATEGORY_WORDS = {
     'mobile_phone': 'phone shop', 'doityourself': 'DIY shop',
     'convenience': 'convenience store', 'department': 'department store',
     'travel_agency': 'travel agency', 'funeral_directors': 'funeral home',
+    'clothes': 'clothing shop', 'antiques': 'antique shop',
+    'sports': 'sports shop', 'books': 'bookshop', 'art': 'art shop',
+    'jewelry': 'jewellery shop', 'jeweller': 'jewellery shop',
+    'bicycle': 'bike shop', 'pet': 'pet shop', 'dance': 'dance studio',
+    'tattoo': 'tattoo studio', 'photo': 'photography studio',
+    'florist': 'florist', 'furniture': 'furniture shop',
+    'hardware': 'hardware shop', 'supermarket': 'grocery shop',
+    'bed': 'bed shop', 'appliance': 'appliance shop',
+    'nightclub': 'nightclub', 'brewery': 'brewery', 'pastry': 'patisserie',
+    'deli': 'deli', 'ice_cream': 'ice cream shop', 'tobacco': 'tobacconist',
+    'laboratory': 'lab', 'association': 'association', 'charity': 'charity',
+    'houseware': 'homeware shop', 'car_parts': 'car parts shop',
+    'alcohol': 'off-licence', 'e_cigarette': 'vape shop',
+    'doityourself': 'DIY shop', 'variety': 'variety store',
     'company': 'business', 'yes': 'business', 'unknown': 'business',
     'shop_unspecified': 'business', 'office_unspecified': 'business',
 }
@@ -130,9 +144,22 @@ def spoken(category: str | None) -> str:
     return c.replace('_', ' ') or 'business'
 
 
+# words that are already plural, or read as plural, and must be left alone
+ALREADY_PLURAL = {'clothes', 'antiques', 'sports', 'books', 'news', 'glasses',
+                  'premises', 'services', 'goods'}
+
+
 def spoken_plural(category: str | None) -> str:
-    """Plural of the spoken form — 'estate agencys' is how a bot writes."""
+    """
+    Plural of the spoken form.
+
+    'estate agencys' and 'clotheses' are both how a bot writes, and both went
+    out in a draft. English plurals are irregular enough that the table above
+    is the real fix — this only handles what is left.
+    """
     w = spoken(category)
+    if w in ALREADY_PLURAL:
+        return w
     if w.endswith('y') and not w.endswith(('ay', 'ey', 'oy', 'uy')):
         return w[:-1] + 'ies'
     if w.endswith(('s', 'x', 'z', 'ch', 'sh')):
