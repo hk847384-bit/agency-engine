@@ -285,18 +285,28 @@ class Finder:
         eleven branches that neither of us has heard of.
         """
         rows = self.store.db.execute(
-            "SELECT id, name, place_id FROM leads WHERE status != 'skip'").fetchall()
+            "SELECT id, name, place_id, website FROM leads "
+            "WHERE status != 'skip'").fetchall()
         repeats = chains.find_repeats([r['name'] for r in rows], threshold)
-        if not repeats:
-            return 0
-        n = 0
+
+        n = by_name = by_site = by_domain = 0
         for r in rows:
+            reason = ''
             if chains.normalise(r['name']) in repeats:
-                self.store.update(r['id'], status='skip',
-                                  audit_notes='chain: repeated name')
-                self.store.suppress('place_id', r['place_id'], 'chain')
-                n += 1
-        print(f'  pruned {n} leads across {len(repeats)} chains')
+                reason, by_name = 'chain: repeated name', by_name + 1
+            elif chains.is_blocklisted(r['name']):
+                reason, by_domain = 'chain: known brand', by_domain + 1
+            elif chains.is_chain_site(r['website']):
+                # the decisive one: the site belongs to the parent brand
+                reason, by_site = 'chain: site is the parent brand', by_site + 1
+            if not reason:
+                continue
+            self.store.update(r['id'], status='skip', audit_notes=reason)
+            self.store.suppress('place_id', r['place_id'], 'chain')
+            n += 1
+
+        print(f'  pruned {n} leads — {by_name} repeated names, '
+              f'{by_domain} known brands, {by_site} on a parent brand site')
         return n
 
     # --------------------------------------------------------------- run

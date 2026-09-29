@@ -76,6 +76,47 @@ BLOCKLIST = {
 SUFFIX = re.compile(r'\s*(#\d+|\(\s*[^)]{1,40}\s*\)|[-–—]\s*[\w\s]{1,30})$')
 
 
+# ------------------------------------------------------------- chain by domain
+# The strongest chain signal is not the name — it is whose website it is.
+# "Embassy Suites by Hilton Austin Arboretum" slips past a name blocklist, but
+# its site is hilton.com. A property on the parent's domain cannot buy a
+# website from you: the brand owns the web presence and the franchisee has no
+# say in it. This is what let 152 Marriott and Hyatt properties score 103.
+CHAIN_DOMAINS = {
+    # hotels — the worst offenders, because every property gets its own listing
+    'hilton.com', 'marriott.com', 'hyatt.com', 'ihg.com', 'wyndhamhotels.com',
+    'choicehotels.com', 'bestwestern.com', 'accor.com', 'radissonhotels.com',
+    'fourseasons.com', 'omnihotels.com', 'loewshotels.com', 'ritzcarlton.com',
+    'hotels.com', 'booking.com', 'expedia.com', 'motel6.com', 'redroof.com',
+    'extendedstayamerica.com', 'sonesta.com', 'drury-hotels.com',
+    'druryhotels.com', 'staybridge.com', 'embassysuites3.hilton.com',
+    # food, retail, services
+    'starbucks.com', 'mcdonalds.com', 'subway.com', 'dominos.com',
+    'pizzahut.com', 'kfc.com', 'burgerking.com', 'wendys.com', 'tacobell.com',
+    'chipotle.com', 'panerabread.com', 'dunkindonuts.com', 'dunkin.com',
+    'walgreens.com', 'cvs.com', 'riteaid.com', 'walmart.com', 'target.com',
+    'kroger.com', 'safeway.com', 'albertsons.com', 'publix.com', 'costco.com',
+    'wholefoodsmarket.com', 'traderjoes.com', 'homedepot.com', 'lowes.com',
+    'bestbuy.com', 'autozone.com', 'oreillyauto.com', 'jiffylube.com',
+    'planetfitness.com', 'lafitness.com', 'anytimefitness.com', 'ymca.net',
+    'supercuts.com', 'greatclips.com', 'massageenvy.com', 'aspendental.com',
+    'hrblock.com', 'theupsstore.com', 'fedex.com', '7-eleven.com', '7-11.com',
+    'circlek.com', 'enterprise.com', 'hertz.com', 'avis.com', 'uhaul.com',
+}
+
+
+def is_chain_site(url: str | None) -> bool:
+    """True when the website belongs to a parent brand, not this location."""
+    if not url:
+        return False
+    m = re.search(r'https?://([^/:?#]+)', url.strip(), re.I)
+    host = (m.group(1) if m else url).lower().removeprefix('www.')
+    if host in CHAIN_DOMAINS:
+        return True
+    root = '.'.join(host.split('.')[-2:])
+    return root in CHAIN_DOMAINS
+
+
 def normalise(name: str) -> str:
     n = (name or '').strip().lower()
     n = SUFFIX.sub('', n)

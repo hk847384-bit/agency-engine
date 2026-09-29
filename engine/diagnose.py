@@ -186,6 +186,20 @@ EMAIL_JUNK = ('example.com', 'sentry.io', 'wixpress.com', 'wix.com', 'godaddy',
               'privacy@', 'legal@', 'compliance@', 'dpo@', 'security@',
               'webmaster@', 'hostmaster@', 'unsubscribe@')
 
+# theme demo content the owner never replaced
+PLACEHOLDER_NAME = re.compile(
+    r'^(john\.?doe|jane\.?doe|j\.?doe|firstname|lastname|your\.?name|name|'
+    r'user|username|someone|somebody|demo|sample|foo|bar|test\d*)@', re.I)
+
+FREE_PROVIDERS = {
+    'gmail.com', 'googlemail.com', 'yahoo.com', 'yahoo.co.uk', 'ymail.com',
+    'hotmail.com', 'hotmail.co.uk', 'outlook.com', 'live.com', 'msn.com',
+    'aol.com', 'icloud.com', 'me.com', 'mac.com', 'protonmail.com',
+    'proton.me', 'gmx.com', 'gmx.net', 'zoho.com', 'mail.com', 'comcast.net',
+    'sbcglobal.net', 'verizon.net', 'att.net', 'bellsouth.net', 'cox.net',
+    'btinternet.com', 'sky.com', 'virginmedia.com',
+}
+
 PREFERRED = ('info@', 'contact@', 'hello@', 'enquiries@', 'enquiry@',
              'reception@', 'admin@', 'office@', 'sales@', 'bookings@',
              'appointments@', 'support@')
@@ -225,12 +239,24 @@ def harvest_email(html: str, soup, base_url: str, timeout: int = 8) -> str:
                 continue
 
     site_host = (urlparse(base_url).hostname or '').removeprefix('www.').lower()
+    root = '.'.join(site_host.split('.')[-2:]) if site_host else ''
+
     clean = []
     for e in found:
         el = e.strip().strip('.').lower()
         if len(el) > 96 or any(j in el for j in EMAIL_JUNK):
             continue
         if re.search(r'\.(png|jpe?g|gif|svg|webp|css|js)$', el):
+            continue
+        if PLACEHOLDER_NAME.match(el):
+            continue
+        dom = el.split('@')[-1]
+        # An address on someone else's business domain is almost always the
+        # web agency that built the site, not the business. Pitching a
+        # dentist's marketing agency wastes the send and tips off a
+        # competitor. Free-provider addresses are fine — plenty of real
+        # owners use gmail.
+        if root and not dom.endswith(root) and dom not in FREE_PROVIDERS:
             continue
         if el not in clean:
             clean.append(el)
@@ -239,8 +265,9 @@ def harvest_email(html: str, soup, base_url: str, timeout: int = 8) -> str:
 
     def rank(e: str) -> tuple:
         own_domain = 0 if site_host and e.endswith('@' + site_host) else 1
+        free = 1 if e.split('@')[-1] in FREE_PROVIDERS else 0
         pref = 0 if any(e.startswith(p) for p in PREFERRED) else 1
-        return (own_domain, pref, len(e))
+        return (own_domain, free, pref, len(e))
 
     return sorted(clean, key=rank)[0]
 
