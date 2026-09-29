@@ -40,7 +40,8 @@ def cmd_find(args):
         per_query=args.limit,
         use_overpass=args.overpass,
         source=args.source,
-        all_categories=args.all_categories)
+        all_categories=args.all_categories,
+        budget_s=args.budget)
     print(json.dumps(res, indent=2))
 
 
@@ -145,6 +146,8 @@ def main(argv=None):
     f.add_argument('--categories', nargs='*')
     f.add_argument('--limit', type=int, default=60)
     f.add_argument('--overpass', action='store_true', help='also pull free OSM data')
+    f.add_argument('--budget', type=int, default=0,
+                   help='seconds; stop starting new cities past this, resume next run')
     f.add_argument('--all-categories', action='store_true', dest='all_categories',
                    help='sweep every business type, not just the configured list')
     f.add_argument('--source', choices=['auto', 'places', 'osm'], default='auto',

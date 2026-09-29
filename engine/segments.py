@@ -138,7 +138,13 @@ def scorecard(store, market: str | None = None, min_leads: int = 4) -> list[dict
         if b['leads'] < min_leads:
             continue
         n = b['leads']
+        # A segment nobody has audited yet has no measured problem rate. The
+        # old code quietly substituted 0.5, which let an undiagnosed segment
+        # outrank a measured one on a number nobody had checked. Say so
+        # instead, and hold its score back until there is evidence.
+        measured = b['diagnosed'] >= max(4, n // 10)
         problem_rate = (b['problem'] / b['diagnosed']) if b['diagnosed'] else 0.5
+        confidence = min(1.0, b['diagnosed'] / max(4, n * 0.25)) if n else 0
         reach = (0.65 * (b['with_phone'] / n)) + (0.35 * (b['with_email'] / n))
         avg_reviews = (b['reviews_total'] / b['reviews_n']) if b['reviews_n'] else 0
         traction = min(1.0, math.log1p(avg_reviews) / math.log1p(150)) if avg_reviews else 0.45
@@ -147,12 +153,16 @@ def scorecard(store, market: str | None = None, min_leads: int = 4) -> list[dict
 
         opportunity = 100 * value * problem_rate * (0.25 + 0.75 * reach) \
             * (0.55 + 0.45 * traction) * (0.45 + 0.55 * volume)
+        # an unaudited segment is a hypothesis, not a ranking
+        opportunity *= (0.55 + 0.45 * confidence)
 
         out.append({**b,
                     'value': round(value, 2),
                     'problem_rate': round(problem_rate, 2),
                     'reachability': round(reach, 2),
                     'avg_reviews': round(avg_reviews, 1),
+                    'measured': 1 if measured else 0,
+                    'confidence': round(confidence, 2),
                     'opportunity': round(opportunity, 1)})
 
     out.sort(key=lambda d: -d['opportunity'])
@@ -165,21 +175,32 @@ def render(rows: list[dict], top: int = 25) -> str:
     w = max(len(r['segment']) for r in rows[:top]) + 2
     lines = [
         '',
-        f"{'segment':<{w}}{'score':>7}{'leads':>7}{'gap%':>6}{'reach':>7}"
+        f"{'segment':<{w}}{'score':>7}{'leads':>7}{'dx':>5}{'gap%':>6}{'reach':>7}"
         f"{'value':>7}{'web':>6}{'seo':>5}{'auto':>6}{'email':>7}",
-        '-' * (w + 58),
+        '-' * (w + 63),
     ]
     for r in rows[:top]:
+        gap = f"{r['problem_rate'] * 100:>4.0f}%" if r.get('measured') else '   ?'
         lines.append(
             f"{r['segment']:<{w}}{r['opportunity']:>7.1f}{r['leads']:>7}"
-            f"{r['problem_rate'] * 100:>5.0f}%{r['reachability']:>7.2f}"
+            f"{r['diagnosed']:>5}{gap:>6}{r['reachability']:>7.2f}"
             f"{r['value']:>7.1f}{r['webdev']:>6}{r['seo']:>5}"
             f"{r['automation']:>6}{r['with_email']:>7}")
+
+    unmeasured = [r['segment'] for r in rows[:top] if not r.get('measured')]
     lines += [
         '',
         'score = value x problem-rate x reachability x traction x volume',
-        'gap%  = share of diagnosed leads with a real problem to sell against',
+        'dx    = how many of those leads have actually been audited',
+        'gap%  = share of AUDITED leads with a real problem to sell against',
         'reach = share you can actually contact (phone weighted 65, email 35)',
-        '',
     ]
+    if unmeasured:
+        lines += [
+            '',
+            'gap% shows ? where too few leads have been audited to measure it.',
+            'Those rows are a hypothesis, not a ranking — run diagnose before',
+            'you trust them: ' + ', '.join(unmeasured[:8]),
+        ]
+    lines.append('')
     return '\n'.join(lines)

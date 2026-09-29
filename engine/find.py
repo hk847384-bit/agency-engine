@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from datetime import date
 
 import requests
 
@@ -51,6 +52,65 @@ def to_e164(raw: str | None, country: str) -> str:
         return '+' + digits
     digits = digits.lstrip('0')
     return f'+{cc}{digits}' if cc else digits
+
+
+# ------------------------------------------------------------------ category
+# OSM lets a mapper write `office=yes` or `shop=yes` when they know a business
+# is there but not what kind. Taken literally that produces a segment called
+# "yes" — 82 of them turned up in the first full sweep. Treat those as unset
+# and keep looking.
+
+GENERIC = {'yes', 'no', 'true', 'unknown', '', 'commercial', 'retail'}
+
+# a last resort, read off the business's own name
+NAME_HINTS = [
+    # prefixes, not whole words — "Roofing" must match "roof"
+    (r'\b(dental|dentist|orthodont|endodont|periodont)',  'dentist'),
+    (r'\b(law offices?|law firm|law group|legal|solicitor|attorney|advocates?)',
+                                                          'lawyer'),
+    (r'\b(account|bookkeep|cpa\b|tax (service|advis|prep))', 'accountant'),
+    (r'\b(realty|real estate|estate agent|properties|property group)',
+                                                          'estate_agent'),
+    (r'\b(insur|assurance)',                              'insurance'),
+    (r'\b(roof)',                                         'roofer'),
+    (r'\b(plumb)',                                        'plumber'),
+    (r'\b(electric)',                                     'electrician'),
+    (r'\b(hvac|heating|air.?condition|cooling)',          'hvac'),
+    (r'\b(chiropract)',                                   'chiropractor'),
+    (r'\b(physio|physical therapy|rehab)',                'physiotherapy'),
+    (r'\b(veterinar|animal hospital|vet clinic)',         'veterinary'),
+    (r'\b(salon|barber|hair studio|hairdress)',           'hairdresser'),
+    (r'\b(med.?spa|aesthetic|laser|botox|skin (clinic|care))', 'beauty'),
+    (r'\b(construct|builder|contracting|remodel|renovat)', 'contractor'),
+    (r'\b(landscap|lawn care|garden design)',             'landscaping'),
+    (r'\b(clinic|medical cent|health cent|physician)',    'clinic'),
+    (r'\b(marketing|advertis|consult|media group|digital agency)', 'agency'),
+]
+NAME_HINTS = [(re.compile(p, re.I), label) for p, label in NAME_HINTS]
+
+# in priority order — the most specific tag that carries a real value wins
+CATEGORY_KEYS = ('healthcare:speciality', 'healthcare', 'craft', 'shop',
+                 'office', 'amenity', 'leisure', 'tourism', 'club')
+
+
+def pick_category(tags: dict) -> str:
+    """The most specific thing OSM will tell us about what this business does."""
+    for key in CATEGORY_KEYS:
+        v = (tags.get(key) or '').strip().lower()
+        if v and v not in GENERIC:
+            return v.split(';')[0]
+
+    # every tag was `yes` — try the name
+    name = tags.get('name') or ''
+    for pattern, label in NAME_HINTS:
+        if pattern.search(name):
+            return label
+
+    # still nothing: at least say which kind of tag it was, not "yes"
+    for key in CATEGORY_KEYS:
+        if (tags.get(key) or '').strip().lower() in GENERIC and tags.get(key):
+            return f'{key}_unspecified'
+    return 'unknown'
 
 
 class Finder:
@@ -180,9 +240,7 @@ class Finder:
             if chains.is_blocklisted(name):
                 skipped_chain += 1
                 continue
-            cat_raw = (t.get('healthcare') or t.get('office') or t.get('craft')
-                       or t.get('shop') or t.get('amenity') or t.get('leisure')
-                       or t.get('tourism') or '')
+            cat_raw = pick_category(t)
             if segments.is_excluded(cat_raw):
                 continue
             if not phone:
@@ -245,12 +303,18 @@ class Finder:
     def run(self, market_name: str, cities: list[str] | None = None,
             categories: list[str] | None = None, per_query: int = 60,
             use_overpass: bool = False, source: str = 'auto',
-            all_categories: bool = False) -> dict:
+            all_categories: bool = False, budget_s: int = 0) -> dict:
         """
         source: 'auto'      Places when a key exists, otherwise OpenStreetMap
                 'places'    Places only (needs a key)
                 'osm'       OpenStreetMap only, free, no key, no billing account
+
+        budget_s: stop starting new cities once this many seconds have gone.
+                  A full sweep of six cities is far more than a CI job's time
+                  limit, so it runs a few cities per day and picks up where it
+                  left off — the database is the memory.
         """
+        started = time.time()
         market = self.cfg.market(market_name)
         cities = cities or market.cities
         categories = categories or market.categories
@@ -267,8 +331,18 @@ class Finder:
             print('  (no Places key — using OpenStreetMap, which is free but '
                   'has no ratings or photos)')
 
+        # rotate the starting city each day, so a budget that only reaches
+        # three cities does not mean the last three are never swept
+        if budget_s and len(cities) > 1:
+            offset = date.today().toordinal() % len(cities)
+            cities = cities[offset:] + cities[:offset]
+
         total = 0
         for city in cities:
+            if budget_s and (time.time() - started) > budget_s:
+                print(f'  time budget reached — {city} and any after it '
+                      f'will be swept on the next run')
+                break
             if use_places:
                 for cat in categories:
                     n = self.places(city, cat, market, per_query)

@@ -42,7 +42,7 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     env:
       GOOGLE_PLACES_KEY: ${{ secrets.GOOGLE_PLACES_KEY }}
@@ -84,7 +84,11 @@ jobs:
       # --------------------------------------------- find / diagnose / demo
       - name: FIND
         if: contains(fromJSON('["build","find"]'), steps.plan.outputs.stage)
-        run: python -m engine.cli find --market "$MARKET" --limit 30 --all-categories
+        timeout-minutes: 20
+        continue-on-error: true
+        run: |
+          python -m engine.cli find --market "$MARKET" --limit 30 \
+            --all-categories --budget 900
 
       - name: Prune chains
         if: contains(fromJSON('["build","find","prune"]'), steps.plan.outputs.stage)
@@ -92,10 +96,14 @@ jobs:
 
       - name: DIAGNOSE
         if: contains(fromJSON('["build","find","diagnose"]'), steps.plan.outputs.stage)
-        run: python -m engine.cli diagnose --limit 250
+        timeout-minutes: 22
+        continue-on-error: true
+        run: python -m engine.cli diagnose --limit 400
 
       - name: BUILD demo sites
         if: contains(fromJSON('["build","demo"]'), steps.plan.outputs.stage)
+        timeout-minutes: 8
+        continue-on-error: true
         run: python -m engine.cli demo --limit 25
 
       - name: Publish demos to GitHub Pages branch
