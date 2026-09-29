@@ -27,6 +27,7 @@ from email.utils import formataddr, make_msgid
 from pathlib import Path
 from urllib.parse import urlparse
 
+from . import segments
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from .store import now
@@ -59,6 +60,24 @@ def problem_short(reasons: list[str]) -> str:
     return "doesn't have much of a web presence yet"
 
 
+def host_of(url: str | None) -> str:
+    """
+    The bare hostname, whether or not anyone bothered with a scheme.
+
+    OSM and Places both store bare domains — "cjane.com" with no https://.
+    urlparse gives those a hostname of None, so the sentence "I had a look at
+    {host} this week" rendered as "I had a look at  this week" and went out
+    looking like a mail merge that failed. Which it was.
+    """
+    u = (url or '').strip()
+    if not u:
+        return ''
+    if '//' not in u:
+        u = 'http://' + u
+    host = (urlparse(u).hostname or '').removeprefix('www.')
+    return host
+
+
 class Pitcher:
     def __init__(self, cfg, store):
         self.cfg = cfg
@@ -67,6 +86,29 @@ class Pitcher:
             loader=FileSystemLoader(str(ROOT / 'templates' / 'msg')),
             autoescape=select_autoescape(enabled_extensions=(), default=False),
             trim_blocks=False, lstrip_blocks=False)
+
+    # ------------------------------------------------------------ guards
+    @staticmethod
+    def not_sendable(lead: dict) -> str:
+        """
+        Reasons a message must not be written at all.
+
+        Each of these produced a draft that would have embarrassed you: a
+        webdev pitch whose "it's already live here:" was followed by a blank
+        line, and an SEO pitch that opened "I had a look at  this week".
+        A template can render a missing value as empty; it cannot know the
+        sentence around it has stopped being true.
+        """
+        offer = (lead.get('offer') or 'other')
+        if offer == 'webdev' and not (lead.get('demo_url') or '').strip():
+            return 'webdev pitch promises a live demo, none built yet'
+        if offer == 'seo' and not host_of(lead.get('website')):
+            return 'seo pitch names their website, none on record'
+        if segments.is_public_sector(lead.get('category'), lead.get('name'),
+                                     lead.get('email')) \
+                or segments.is_public_sector(None, None, host_of(lead.get('website'))):
+            return 'public sector or non-commercial — not a prospect'
+        return ''
 
     # ------------------------------------------------------------ compose
     def compose(self, row, channel: str) -> dict:
@@ -82,9 +124,11 @@ class Pitcher:
 
         unsub = ''
         if channel == 'email':
-            unsub = (f'Not interested? Reply STOP and you will not hear from me again'
+            unsub = ('Not interested? Reply STOP and you will not hear from me again'
                      + (f', or unsubscribe here: {self.cfg.unsubscribe_url}'
                         if self.cfg.unsubscribe_url else '') + '.')
+            if self.cfg.agency_address:
+                unsub += f'\n{self.cfg.agency_name}, {self.cfg.agency_address}'
 
         ctx = {
             'biz': lead,
@@ -92,7 +136,9 @@ class Pitcher:
             'reasons': reasons,
             'problem_short': problem_short(reasons),
             'demo_url': lead.get('demo_url') or '',
-            'website_host': (urlparse(lead.get('website') or '').hostname or '').removeprefix('www.'),
+            'website_host': host_of(lead.get('website')),
+            'category_words': segments.spoken(lead.get('category')),
+            'category_plural': segments.spoken_plural(lead.get('category')),
             'price': price or 'a fair fixed price',
             'agency_name': self.cfg.agency_name,
             'agency_person': self.cfg.agency_person,
@@ -132,6 +178,9 @@ class Pitcher:
             return 'skipped', 'suppressed'
         if self.store.address_used(to, exclude_lead=lead.get('id')):
             return 'skipped', 'address already contacted under another lead'
+        if not dry_run and not self.cfg.agency_address:
+            return 'skipped', ('no agency_address set — a postal address is '
+                               'required by law in every commercial email')
 
         lim = self.cfg.limits
         if self.store.sent_today('email') >= lim.emails_per_day:
@@ -213,6 +262,13 @@ class Pitcher:
             return {'channel': channel, 'counts': {}, 'drafts': []}
 
         for row in rows:
+            block = self.not_sendable(dict(row))
+            if block:
+                counts['skipped'] = counts.get('skipped', 0) + 1
+                reasons[block] = reasons.get(block, 0) + 1
+                self.store.log_touch(row['id'], channel, 'first', '', '',
+                                     'skipped', block)
+                continue
             msg = self.compose(row, channel)
             if channel == 'email':
                 status, err = self.send_email(row, msg, dry_run)

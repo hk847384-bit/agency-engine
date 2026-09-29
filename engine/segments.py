@@ -70,6 +70,76 @@ EXCLUDE = ('atm', 'bench', 'bicycle_parking', 'post_box', 'toilets', 'shelter',
            'courthouse', 'prison', 'marketplace')
 
 
+# Bodies that cannot buy from you, and that it is a bad look to cold-pitch.
+# The first run drafted an SEO pitch to fsa.usda.gov — the USDA Farm Service
+# Agency — addressed to their IT service desk.
+PUBLIC_SECTOR = ('government', 'diplomatic', 'embassy', 'consulate', 'townhall',
+                 'city hall', 'courthouse', 'police', 'fire station', 'prison',
+                 'military', 'public_building', 'ranger_station')
+
+PUBLIC_DOMAINS = ('.gov', '.gov.uk', '.mil', '.usda.gov', '.state.',
+                  'county.', 'cityof', '.edu')
+
+PUBLIC_NAME = re.compile(
+    r'\b(department of|dept of|bureau of|office of the|federal|county of|'
+    r'city of|state of|municipal|us |u\.s\. |usda|irs|dmv|social security|'
+    r'public library|police|sheriff|fire department|courthouse|embassy|'
+    r'consulate|veterans affairs)\b', re.I)
+
+
+def is_public_sector(category: str | None, name: str | None = None,
+                     email: str | None = None) -> bool:
+    c = canon(category or '')
+    if any(p in c for p in PUBLIC_SECTOR):
+        return True
+    if name and PUBLIC_NAME.search(name):
+        return True
+    if email:
+        dom = email.strip().lower().split('@')[-1]
+        if any(dom.endswith(p) or p in dom for p in PUBLIC_DOMAINS):
+            return True
+    return False
+
+
+# a slug is not how a person speaks — "estate_agent websites" reads as a bug,
+# because it is one
+CATEGORY_WORDS = {
+    'estate_agent': 'estate agency', 'real_estate': 'estate agency',
+    'lawyer': 'law firm', 'attorney': 'law firm', 'solicitor': 'law firm',
+    'dentist': 'dental practice', 'orthodontics': 'orthodontic practice',
+    'car_repair': 'auto repair shop', 'car_parts': 'auto parts shop',
+    'fast_food': 'takeaway', 'hairdresser': 'salon', 'beauty': 'beauty salon',
+    'financial_advisor': 'financial advice firm', 'tax_advisor': 'tax practice',
+    'veterinary': 'veterinary practice', 'physiotherapist': 'physio clinic',
+    'fitness_centre': 'gym', 'fitness': 'gym', 'dry_cleaning': 'dry cleaner',
+    'employment_agency': 'recruitment firm', 'driving_school': 'driving school',
+    'educational_institution': 'school', 'golf_course': 'golf club',
+    'mobile_phone': 'phone shop', 'doityourself': 'DIY shop',
+    'convenience': 'convenience store', 'department': 'department store',
+    'travel_agency': 'travel agency', 'funeral_directors': 'funeral home',
+    'company': 'business', 'yes': 'business', 'unknown': 'business',
+    'shop_unspecified': 'business', 'office_unspecified': 'business',
+}
+
+
+def spoken(category: str | None) -> str:
+    """How you would say this category out loud, in a sentence."""
+    c = canon(category or '')
+    if c in CATEGORY_WORDS:
+        return CATEGORY_WORDS[c]
+    return c.replace('_', ' ') or 'business'
+
+
+def spoken_plural(category: str | None) -> str:
+    """Plural of the spoken form — 'estate agencys' is how a bot writes."""
+    w = spoken(category)
+    if w.endswith('y') and not w.endswith(('ay', 'ey', 'oy', 'uy')):
+        return w[:-1] + 'ies'
+    if w.endswith(('s', 'x', 'z', 'ch', 'sh')):
+        return w + 'es'
+    return w + 's'
+
+
 def canon(raw: str) -> str:
     """Normalise an OSM tag or a Places display name into one label."""
     c = (raw or '').strip().lower().replace('-', '_')

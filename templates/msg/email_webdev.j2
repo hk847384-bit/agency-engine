@@ -2,7 +2,7 @@ Subject: I built {{ biz.name }} a website — have a look
 
 Hi{% if contact_name %} {{ contact_name }}{% endif %},
 
-I was looking through {{ biz.category|lower }}s in {{ biz.city }} and noticed {{ biz.name }} {{ problem_short }}.
+I was looking through {{ category_plural }} in {{ biz.city }} and noticed {{ biz.name }} {{ problem_short }}.
 
 So I built you one. It's already live here, nothing to sign up for:
 {{ demo_url }}

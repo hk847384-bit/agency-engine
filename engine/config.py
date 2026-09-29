@@ -51,6 +51,10 @@ class Config:
     agency_person: str = 'Imran'
     agency_email: str = 'hello@example.com'
     agency_phone: str = ''
+    # CAN-SPAM (US) and PECR/GDPR (UK/EU) both require a real postal address
+    # in every commercial email. Without it the send is unlawful, however
+    # good the copy is — so the pitcher refuses to send until it is set.
+    agency_address: str = ''
     agency_site: str = ''
     google_places_key: str = ''
     serp_api_key: str = ''                  # optional, for real rank checks
