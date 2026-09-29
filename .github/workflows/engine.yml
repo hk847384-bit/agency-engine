@@ -22,7 +22,7 @@ on:
         required: true
         default: 'all'
         type: choice
-        options: [all, find, diagnose, demo, pitch, report]
+        options: [all, find, prune, diagnose, demo, pitch, report]
       market:
         description: 'Market (us, uk, ae)'
         required: false
@@ -84,7 +84,11 @@ jobs:
       # --------------------------------------------- find / diagnose / demo
       - name: FIND
         if: contains(fromJSON('["build","find"]'), steps.plan.outputs.stage)
-        run: python -m engine.cli find --market "$MARKET" --limit 30
+        run: python -m engine.cli find --market "$MARKET" --limit 30 --all-categories
+
+      - name: Prune chains
+        if: contains(fromJSON('["build","find","prune"]'), steps.plan.outputs.stage)
+        run: python -m engine.cli prune-chains --threshold 3
 
       - name: DIAGNOSE
         if: contains(fromJSON('["build","find","diagnose"]'), steps.plan.outputs.stage)
@@ -135,15 +139,20 @@ jobs:
         run: python -m engine.cli pitch --channel whatsapp --limit 25 --min-score 60 --out out/wa.json || true
 
       # ----------------------------------------------------------- report
-      - name: Stats + CSV
+      - name: Stats, segments + CSV
         if: always()
         run: |
           python -m engine.cli stats | tee out/stats.txt
+          python -m engine.cli segments --top 20 --out out/segments.csv | tee out/segments.txt
           python -m engine.cli export --out out/leads.csv
           {
             echo "### agency-engine — ${{ steps.plan.outputs.stage }} (${MARKET})"
             echo '```'
             cat out/stats.txt
+            echo '```'
+            echo "### Which segments are worth your time"
+            echo '```'
+            cat out/segments.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -154,6 +163,7 @@ jobs:
           name: leads-${{ github.run_number }}
           path: |
             out/leads.csv
+            out/segments.csv
             out/drafts.json
             out/wa.json
           retention-days: 30
